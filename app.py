@@ -2,10 +2,12 @@ import subprocess
 import sys
 import os
 
-# 1. Force update yt-dlp once per container boot so it stays up to date
+# 1. Force update yt-dlp to the latest nightly/release build before importing
 if "yt_dlp_updated" not in os.environ:
     try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "yt-dlp", "imageio-ffmpeg"])
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", "--upgrade", "--pre", "yt-dlp", "imageio-ffmpeg"]
+        )
         os.environ["yt_dlp_updated"] = "1"
     except Exception:
         pass
@@ -16,7 +18,7 @@ import tempfile
 import base64
 import glob
 
-# Load ffmpeg for high-res stream merging & automatic MP4 conversion
+# Load ffmpeg for stream merging & audio extraction
 try:
     import imageio_ffmpeg
     FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
@@ -150,7 +152,7 @@ if st.session_state.show_settings:
     st.write("")
     st.subheader("ℹ️ About & Version")
     st.write("**Application:** YumnaKashif Universal Downloader")
-    st.write("**Version:** v8.7.0 Resilient Stream Engine")
+    st.write("**Version:** v9.0.0 Zero-Error Format Sort Engine")
     st.markdown("### Made by **Mohd Kashif**")
     st.caption("AI & Full-Stack Developer")
 
@@ -180,21 +182,17 @@ else:
             with st.spinner("⚡ YumnaKashif AI is fetching & merging streams..."):
                 temp_dir = tempfile.mkdtemp()
                 
-                # Foolproof resilient format selectors using yt-dlp native fallback syntax (bv* + ba / b)
-                if "Audio Only" in download_type:
-                    primary_format = "ba/b"
-                else:
-                    if FFMPEG_PATH:
-                        if "1080p" in quality_choice:
-                            primary_format = "bv*[height<=1080]+ba/b[height<=1080]/b"
-                        elif "720p" in quality_choice:
-                            primary_format = "bv*[height<=720]+ba/b[height<=720]/b"
-                        elif "480p" in quality_choice:
-                            primary_format = "bv*[height<=480]+ba/b[height<=480]/b"
-                        else:
-                            primary_format = "bv*+ba/b"
+                # Use format_sort instead of strict format filters so yt-dlp NEVER fails with "Requested format is not available"
+                format_sort = []
+                if "Audio Only" not in download_type:
+                    if "1080p" in quality_choice:
+                        format_sort = ["res:1080", "ext:mp4:m4a"]
+                    elif "720p" in quality_choice:
+                        format_sort = ["res:720", "ext:mp4:m4a"]
+                    elif "480p" in quality_choice:
+                        format_sort = ["res:480", "ext:mp4:m4a"]
                     else:
-                        primary_format = "b"
+                        format_sort = ["ext:mp4:m4a"]
 
                 base_opts = {
                     "outtmpl": os.path.join(temp_dir, "%(title)s.%(ext)s"),
@@ -204,47 +202,66 @@ else:
                     "nocheckcertificate": True,
                     "cachedir": False,
                     "geo_bypass": True,
+                    "ignore_no_formats_error": True,
                 }
 
-                if os.path.exists("cookies.txt"):
-                    base_opts["cookiefile"] = "cookies.txt"
+                if format_sort:
+                    base_opts["format_sort"] = format_sort
 
                 if FFMPEG_PATH:
                     base_opts["ffmpeg_location"] = FFMPEG_PATH
                     if "Video" in download_type:
                         base_opts["merge_output_format"] = "mp4"
 
-                # Multi-Platform Robust Bypass Engine with Ultimate Fallbacks
-                attempts = [
-                    {
+                has_cookies = os.path.exists("cookies.txt") and os.path.getsize("cookies.txt") > 0
+
+                # Build non-conflicting client stages (Never mix cookies.txt with android/ios clients)
+                attempts = []
+                
+                if has_cookies:
+                    # Stage 1 (With Cookies): Web / MWeb / TV clients support cookies properly
+                    attempts.append({
                         **base_opts,
-                        "format": primary_format,
-                        "extractor_args": {"youtube": {"player_client": ["android"]}},
-                    },
-                    {
+                        "cookiefile": "cookies.txt",
+                        "extractor_args": {"youtube": {"player_client": ["web", "mweb", "tv"]}},
+                    })
+                    # Stage 2 (With Cookies): Default extractor without forced format string
+                    attempts.append({
                         **base_opts,
-                        "format": primary_format,
-                        "extractor_args": {"youtube": {"player_client": ["ios"]}},
-                    },
-                    {
-                        **base_opts,
-                        "format": "b",
-                        "extractor_args": {"youtube": {"player_client": ["web"]}},
-                    }
-                ]
+                        "cookiefile": "cookies.txt",
+                    })
+
+                # Stage 3 (Cookie-less Fallback): tv_embedded & android_vr work without cookies or PO tokens
+                attempts.append({
+                    **base_opts,
+                    "extractor_args": {"youtube": {"player_client": ["tv_embedded", "android_vr", "mweb"]}},
+                })
+
+                # Stage 4 (Cookie-less iOS/Android Fallback): Pure mobile extraction without cookie conflict
+                attempts.append({
+                    **base_opts,
+                    "extractor_args": {"youtube": {"player_client": ["ios", "android"]}},
+                })
 
                 info_dict = None
                 last_error = None
 
                 for opts in attempts:
                     try:
+                        # Clean any leftover partial files before each attempt
                         for old_f in os.listdir(temp_dir):
                             try:
                                 os.remove(os.path.join(temp_dir, old_f))
                             except Exception:
                                 pass
+
+                        # Only specify audio format when Audio Only is chosen; otherwise let yt-dlp auto-pick best available
+                        if "Audio Only" in download_type:
+                            opts["format"] = "bestaudio/best"
+
                         with yt_dlp.YoutubeDL(opts) as ydl:
                             info_dict = ydl.extract_info(url, download=True)
+                        
                         if os.listdir(temp_dir):
                             break
                     except Exception as err:
