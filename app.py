@@ -150,7 +150,7 @@ if st.session_state.show_settings:
     st.write("")
     st.subheader("ℹ️ About & Version")
     st.write("**Application:** YumnaKashif Universal Downloader")
-    st.write("**Version:** v8.4.0 Cookie & Cloud Engine")
+    st.write("**Version:** v8.5.0 Bulletproof Format Engine")
     st.markdown("### Made by **Mohd Kashif**")
     st.caption("AI & Full-Stack Developer")
 
@@ -177,9 +177,10 @@ else:
         if not url.strip():
             st.error("Please paste a valid video link first.")
         else:
-            with st.spinner("⚡ YumnaKashif AI is bypassing cloud restrictions & fetching streams..."):
+            with st.spinner("⚡ YumnaKashif AI is fetching & merging streams..."):
                 temp_dir = tempfile.mkdtemp()
                 
+                # Foolproof format strings with safe universal fallbacks (/best)
                 if "Audio Only" in download_type:
                     primary_format = "bestaudio/best"
                 else:
@@ -191,7 +192,7 @@ else:
                         elif "480p" in quality_choice:
                             primary_format = "bestvideo[height<=480]+bestaudio/best[height<=480]/best"
                         else:
-                            primary_format = "bestvideo+bestaudio/best"
+                            primary_format = "bestvideo+bestaudio/best/best"
                     else:
                         primary_format = "best"
 
@@ -205,7 +206,6 @@ else:
                     "geo_bypass": True,
                 }
 
-                # Automatically use cookies.txt if uploaded to repository to bypass bot challenge
                 if os.path.exists("cookies.txt"):
                     base_opts["cookiefile"] = "cookies.txt"
 
@@ -214,7 +214,7 @@ else:
                     if "Video" in download_type:
                         base_opts["merge_output_format"] = "mp4"
 
-                # Multi-Platform Bypass Engine for Cloud Hosting
+                # Multi-Platform Robust Bypass Engine
                 attempts = [
                     {
                         **base_opts,
