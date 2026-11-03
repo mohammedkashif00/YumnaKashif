@@ -2,7 +2,7 @@ import subprocess
 import sys
 import os
 
-# 1. FORCE UPDATE yt-dlp once per container boot so YouTube never blocks an outdated version
+# 1. Force update yt-dlp once per container boot so it stays up to date
 if "yt_dlp_updated" not in os.environ:
     try:
         subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "yt-dlp", "imageio-ffmpeg"])
@@ -16,7 +16,7 @@ import tempfile
 import base64
 import glob
 
-# Load ffmpeg for 1080p/4K stream merging
+# Load ffmpeg for high-res stream merging & automatic MP4 conversion
 try:
     import imageio_ffmpeg
     FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
@@ -86,7 +86,6 @@ st.markdown(f"""
     [data-testid="stSidebar"], [data-testid="collapsedControl"] {{
         display: none !important;
     }}
-    /* Completely hide any stray horizontal lines or empty container boxes */
     hr {{
         display: none !important;
     }}
@@ -151,7 +150,7 @@ if st.session_state.show_settings:
     st.write("")
     st.subheader("ℹ️ About & Version")
     st.write("**Application:** YumnaKashif Universal Downloader")
-    st.write("**Version:** v8.0.0 Anti-403 Engine")
+    st.write("**Version:** v8.1.0 Universal Format Engine")
     st.markdown("### Made by **Mohd Kashif**")
     st.caption("AI & Full-Stack Developer")
 
@@ -165,7 +164,7 @@ else:
     
     download_type = st.radio("Format:", ["Video (MP4)", "Audio Only (MP3/M4A)"], horizontal=True)
     
-    # Quality box ONLY appears if Video is selected; completely disappears for Audio Only
+    # Quality selector ONLY shows when Video is selected
     if download_type == "Video (MP4)":
         quality_choice = st.selectbox(
             "Select Quality:",
@@ -179,122 +178,30 @@ else:
         if not url.strip():
             st.error("Please paste a valid video link first.")
         else:
-            with st.spinner("⚡ YumnaKashif AI is bypassing restrictions & fetching media..."):
+            with st.spinner("⚡ YumnaKashif AI is fetching & merging streams..."):
                 temp_dir = tempfile.mkdtemp()
                 
-                # Build desired format string
+                # Flexible format strings (no strict [ext=mp4] lock that causes 'Requested format not available')
                 if "Audio Only" in download_type:
-                    primary_format = "bestaudio[ext=m4a]/bestaudio/best"
+                    primary_format = "bestaudio/best"
                 else:
                     if FFMPEG_PATH:
                         if "1080p" in quality_choice:
-                            primary_format = "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080]/best"
+                            primary_format = "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"
                         elif "720p" in quality_choice:
-                            primary_format = "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720]/best"
+                            primary_format = "bestvideo[height<=720]+bestaudio/best[height<=720]/best"
                         elif "480p" in quality_choice:
-                            primary_format = "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[height<=480]/best"
+                            primary_format = "bestvideo[height<=480]+bestaudio/best[height<=480]/best"
                         else:
-                            primary_format = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best"
+                            primary_format = "bestvideo+bestaudio/best"
                     else:
-                        primary_format = "best[ext=mp4]/best"
+                        primary_format = "best"
 
-                # Base options with browser headers and cache disabled (prevents cached 403 blocks)
+                # Clean base options without conflicting custom HTTP headers
                 base_opts = {
                     "outtmpl": os.path.join(temp_dir, "%(title)s.%(ext)s"),
                     "noplaylist": True,
                     "quiet": True,
                     "no_warnings": True,
                     "nocheckcertificate": True,
-                    "cachedir": False,
-                    "geo_bypass": True,
-                    "http_headers": {
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                        "Accept-Language": "en-US,en;q=0.9",
-                    },
-                }
-
-                if FFMPEG_PATH:
-                    base_opts["ffmpeg_location"] = FFMPEG_PATH
-                if "Video" in download_type:
-                    base_opts["merge_output_format"] = "mp4"
-
-                # 3-Stage Fallback Attempts to defeat HTTP 403 Forbidden
-                attempts = [
-                    # Stage 1: TV & Mobile Web client (Best for bypassing 403 without cookies)
-                    {
-                        **base_opts,
-                        "format": primary_format,
-                        "extractor_args": {"youtube": {"player_client": ["tv", "mweb"]}},
-                    },
-                    # Stage 2: Android Creator & Web Embedded client
-                    {
-                        **base_opts,
-                        "format": primary_format,
-                        "extractor_args": {"youtube": {"player_client": ["web_embedded", "android_vr"]}},
-                    },
-                    # Stage 3: Universal single-file fallback (Guaranteed stream fetch)
-                    {
-                        **base_opts,
-                        "format": "bestaudio/best" if "Audio Only" in download_type else "best[ext=mp4]/best",
-                    }
-                ]
-
-                info_dict = None
-                last_error = None
-
-                for opts in attempts:
-                    try:
-                        # Clean any partial files from a failed previous stage
-                        for old_f in os.listdir(temp_dir):
-                            try:
-                                os.remove(os.path.join(temp_dir, old_f))
-                            except Exception:
-                                pass
-                        with yt_dlp.YoutubeDL(opts) as ydl:
-                            info_dict = ydl.extract_info(url, download=True)
-                        if os.listdir(temp_dir):
-                            break
-                    except Exception as err:
-                        last_error = err
-
-                downloaded_files = os.listdir(temp_dir)
-                if info_dict and downloaded_files:
-                    video_title = info_dict.get("title", "YumnaKashif_Media")
-                    uploader = info_dict.get("uploader", "Social Media Creator")
-                    duration = info_dict.get("duration", 0)
-                    thumbnail = info_dict.get("thumbnail", None)
-                    height = info_dict.get("height", "HD")
-
-                    file_path = os.path.join(temp_dir, downloaded_files[0])
-                    mime_type = "audio/mp4" if "Audio" in download_type else "video/mp4"
-
-                    st.session_state.history.append({
-                        "title": video_title,
-                        "type": download_type,
-                        "quality": quality_choice,
-                        "url": url
-                    })
-
-                    st.success("✅ Media Ready for Download!")
-                    col1, col2 = st.columns([1, 2])
-                    if thumbnail:
-                        col1.image(thumbnail)
-                    with col2:
-                        st.markdown(f"#### {video_title}")
-                        st.write(f"👤 **Creator:** {uploader}")
-                        if duration:
-                            st.write(f"⏱️ **Duration:** {int(duration) // 60}m {int(duration) % 60}s")
-                        if "Video" in download_type:
-                            st.write(f"🎯 **Quality:** {quality_choice} ({height}p)" if isinstance(height, int) else f"🎯 **Quality:** {quality_choice}")
-                        else:
-                            st.write("🎵 **Format:** High-Bitrate Audio")
-
-                    with open(file_path, "rb") as f:
-                        st.download_button(
-                            label=f"⬇️ Save {downloaded_files[0]} to Device",
-                            data=f,
-                            file_name=downloaded_files[0],
-                            mime=mime_type
-                        )
-                else:
-                    st.error(f"Download Error: {last_error}")
+                    "
