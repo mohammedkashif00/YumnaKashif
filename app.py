@@ -150,7 +150,7 @@ if st.session_state.show_settings:
     st.write("")
     st.subheader("ℹ️ About & Version")
     st.write("**Application:** YumnaKashif Universal Downloader")
-    st.write("**Version:** v8.1.0 Universal Format Engine")
+    st.write("**Version:** v8.2.0 Cloud Anti-403 Engine")
     st.markdown("### Made by **Mohd Kashif**")
     st.caption("AI & Full-Stack Developer")
 
@@ -177,7 +177,7 @@ else:
         if not url.strip():
             st.error("Please paste a valid video link first.")
         else:
-            with st.spinner("⚡ YumnaKashif AI is fetching & merging streams..."):
+            with st.spinner("⚡ YumnaKashif AI is bypassing cloud restrictions & fetching streams..."):
                 temp_dir = tempfile.mkdtemp()
                 
                 if "Audio Only" in download_type:
@@ -210,20 +210,25 @@ else:
                     if "Video" in download_type:
                         base_opts["merge_output_format"] = "mp4"
 
+                # Enhanced Multi-Platform Bypass Engine for Cloud Hosting
                 attempts = [
+                    # Stage 1: Android client (most reliable for bypassing cloud datacenter 403 blocks)
                     {
                         **base_opts,
                         "format": primary_format,
+                        "extractor_args": {"youtube": {"player_client": ["android"]}},
                     },
+                    # Stage 2: iOS client fallback
                     {
                         **base_opts,
                         "format": primary_format,
-                        "extractor_args": {"youtube": {"player_client": ["android_vr", "web_embedded"]}},
+                        "extractor_args": {"youtube": {"player_client": ["ios"]}},
                     },
+                    # Stage 3: Direct web client fallback with geo-bypass
                     {
                         **base_opts,
                         "format": "bestaudio/best" if "Audio Only" in download_type else "best",
-                        "extractor_args": {"youtube": {"player_client": ["android_vr", "mweb", "web"]}},
+                        "extractor_args": {"youtube": {"player_client": ["web"]}},
                     }
                 ]
 
