@@ -52,8 +52,6 @@ if "show_settings" not in st.session_state:
 # ----------------- LIGHT & DARK THEME STYLING -----------------
 theme_text = "#0f172a" if not st.session_state.dark_mode else "#f8fafc"
 sub_text = "#475569" if not st.session_state.dark_mode else "#cbd5e1"
-card_bg = "rgba(255, 255, 255, 0.88)" if not st.session_state.dark_mode else "rgba(15, 23, 42, 0.82)"
-card_border = "rgba(15, 23, 42, 0.12)" if not st.session_state.dark_mode else "rgba(255, 255, 255, 0.16)"
 
 img_b64 = get_background_base64()
 if img_b64:
@@ -90,17 +88,6 @@ st.markdown(f"""
     }}
     [data-testid="collapsedControl"] {{
         display: none !important;
-    }}
-    .glass-card {{
-        background: {card_bg};
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
-        border: 1px solid {card_border};
-        padding: 28px;
-        border-radius: 18px;
-        box-shadow: 0 10px 30px 0 rgba(0, 0, 0, 0.12);
-        margin-bottom: 22px;
-        color: {theme_text};
     }}
     .stButton>button {{
         width: 100%;
@@ -140,16 +127,15 @@ st.markdown("---")
 # ----------------- VIEW A: SETTINGS SCREEN -----------------
 if st.session_state.show_settings:
     st.markdown("<h2 style='text-align: center;'>⚙️ Settings & Control Center</h2>", unsafe_allow_html=True)
+    st.write("")
 
-    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
     st.subheader("🎨 Theme & Appearance")
     dark_toggle = st.toggle("🌙 Night Mode (Dark Theme)", value=st.session_state.dark_mode)
     if dark_toggle != st.session_state.dark_mode:
         st.session_state.dark_mode = dark_toggle
         st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+    st.markdown("---")
     st.subheader("📜 Download History")
     if not st.session_state.history:
         st.info("No videos downloaded in this session yet.")
@@ -161,20 +147,17 @@ if st.session_state.show_settings:
         if st.button("🗑️ Clear History"):
             st.session_state.history = []
             st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown('<div class="glass-card" style="text-align: center;">', unsafe_allow_html=True)
+    st.markdown("---")
     st.subheader("ℹ️ About & Version")
     st.write("**Application:** YumnaKashif Universal Downloader")
-    st.write("**Version:** v7.2.0 Clean Pro")
+    st.write("**Version:** v7.3.0 Boxless Pro")
     st.markdown("---")
     st.markdown("### Made by **Mohd Kashif**")
     st.caption("AI & Full-Stack Developer")
-    st.markdown('</div>', unsafe_allow_html=True)
 
 # ----------------- VIEW B: MAIN DOWNLOADER SCREEN -----------------
 else:
-    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
     st.subheader("📥 Download Ultra-HD Video or Audio")
     url = st.text_input("🔗 Paste YouTube, Instagram, or Social Media Link:", placeholder="https://www.youtube.com/watch?v=... or https://www.instagram.com/reel/...")
     
@@ -187,6 +170,7 @@ else:
             ["Best Available (1080p/4K)", "1080p Full HD", "720p HD", "480p Fast"]
         )
 
+    st.write("")
     if st.button("🚀 Fetch & Download Media"):
         if not url.strip():
             st.error("Please paste a valid video link first.")
