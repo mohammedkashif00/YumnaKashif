@@ -150,7 +150,7 @@ if st.session_state.show_settings:
     st.write("")
     st.subheader("ℹ️ About & Version")
     st.write("**Application:** YumnaKashif Universal Downloader")
-    st.write("**Version:** v8.6.0 Universal Stream Engine")
+    st.write("**Version:** v8.7.0 Resilient Stream Engine")
     st.markdown("### Made by **Mohd Kashif**")
     st.caption("AI & Full-Stack Developer")
 
@@ -180,21 +180,21 @@ else:
             with st.spinner("⚡ YumnaKashif AI is fetching & merging streams..."):
                 temp_dir = tempfile.mkdtemp()
                 
-                # Foolproof format strings with universal fallbacks for Shorts, Reels, and regular videos
+                # Foolproof resilient format selectors using yt-dlp native fallback syntax (bv* + ba / b)
                 if "Audio Only" in download_type:
-                    primary_format = "bestaudio/best"
+                    primary_format = "ba/b"
                 else:
                     if FFMPEG_PATH:
                         if "1080p" in quality_choice:
-                            primary_format = "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"
+                            primary_format = "bv*[height<=1080]+ba/b[height<=1080]/b"
                         elif "720p" in quality_choice:
-                            primary_format = "bestvideo[height<=720]+bestaudio/best[height<=720]/best"
+                            primary_format = "bv*[height<=720]+ba/b[height<=720]/b"
                         elif "480p" in quality_choice:
-                            primary_format = "bestvideo[height<=480]+bestaudio/best[height<=480]/best"
+                            primary_format = "bv*[height<=480]+ba/b[height<=480]/b"
                         else:
-                            primary_format = "bestvideo+bestaudio/best"
+                            primary_format = "bv*+ba/b"
                     else:
-                        primary_format = "best"
+                        primary_format = "b"
 
                 base_opts = {
                     "outtmpl": os.path.join(temp_dir, "%(title)s.%(ext)s"),
@@ -214,7 +214,7 @@ else:
                     if "Video" in download_type:
                         base_opts["merge_output_format"] = "mp4"
 
-                # Multi-Platform Robust Bypass Engine with Ultimate 'best' Fallback
+                # Multi-Platform Robust Bypass Engine with Ultimate Fallbacks
                 attempts = [
                     {
                         **base_opts,
@@ -228,7 +228,7 @@ else:
                     },
                     {
                         **base_opts,
-                        "format": "best",
+                        "format": "b",
                         "extractor_args": {"youtube": {"player_client": ["web"]}},
                     }
                 ]
