@@ -48,7 +48,7 @@ theme_text = "#0f172a" if not st.session_state.dark_mode else "#f8fafc"
 img_b64 = get_background_base64()
 if img_b64:
     overlay = (
-        "linear-gradient(135deg, rgba(248, 250, 252, 0.85) 0%, rgba(226, 232, 240, 0.90) 100%"
+        "linear-gradient(135deg, rgba(248, 250, 252, 0.85) 0%, rgba(226, 232, 240, 0.90) 100%)"
         if not st.session_state.dark_mode
         else "linear-gradient(135deg, rgba(10, 15, 30, 0.82) 0%, rgba(30, 20, 60, 0.88) 100%)"
     )
@@ -102,68 +102,24 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
-# ----------------- CLOUD-RESILIENT PIPED EXTRACTION ENGINE -----------------
+# ----------------- ADVANCED MULTI-API EXTRACTION ENGINE -----------------
 def fetch_media_stream(url, download_type, temp_dir):
     """
-    Bypasses datacenter IP blocks and format-not-available errors by querying 
-    public unthrottled media extraction routing APIs.
+    Queries multiple unthrottled public proxy routing engines with optimized payloads
+    to guarantee a valid direct stream URL.
     """
     try:
-        # Extract video ID if it's a YouTube URL
-        vid_id = ""
-        if "youtu.be/" in url:
-            vid_id = url.split("youtu.be/")[1].split("?")[0]
-        elif "watch?v=" in url:
-            vid_id = url.split("watch?v=")[1].split("&")[0]
-        elif "shorts/" in url:
-            vid_id = url.split("shorts/")[1].split("?")[0]
-
-        if not vid_id and ("youtube.com" in url or "youtu.be" in url):
-            return None, None, "Invalid YouTube URL format."
-
-        # Query public piped instances for unblocked stream direct links
-        instances = [
-            "https://pipedapi.kavin.rocks",
-            "https://piped-api.privacy.com.de",
-            "https://api.piped.projectsegfault.net"
-        ]
-        
         stream_url = None
-        video_info = {}
+        video_info = {
+            "title": "YumnaKashif_Media",
+            "uploader": "Social Media Creator",
+            "duration": 0,
+            "thumbnail": None,
+            "height": "HD"
+        }
 
-        if vid_id:
-            for inst in instances:
-                try:
-                    req_url = f"{inst}/streams/{vid_id}"
-                    req = urllib.request.Request(req_url, headers={"User-Agent": "Mozilla/5.0"})
-                    with urllib.request.urlopen(req, timeout=5) as response:
-                        data = json.loads(response.read().decode())
-                        video_info = {
-                            "title": data.get("title", "YumnaKashif_Media"),
-                            "uploader": data.get("uploader", "Creator"),
-                            "duration": data.get("duration", 0),
-                            "thumbnail": data.get("thumbnailUrl", None),
-                            "height": "HD"
-                        }
-                        
-                        if "Audio Only" in download_type:
-                            audio_streams = [s for s in data.get("audioStreams", []) if s.get("url")]
-                            if audio_streams:
-                                stream_url = audio_streams[0]["url"]
-                                break
-                        else:
-                            video_streams = [s for s in data.get("videoStreams", []) if s.get("url") and s.get("videoOnly") == False]
-                            if video_streams:
-                                stream_url = video_streams[0]["url"]
-                                break
-                            elif data.get("videoStreams", []):
-                                stream_url = data["videoStreams"][0]["url"]
-                                break
-                except Exception:
-                    continue
-
-        # If Piped didn't return a direct link, fallback to Cobalt API (universal media fetcher)
-        if not stream_url:
+        # Method 1: Cobalt API (Most reliable universal media fetcher)
+        try:
             cobalt_payload = json.dumps({
                 "url": url,
                 "isAudioOnly": True if "Audio Only" in download_type else False
@@ -175,41 +131,80 @@ def fetch_media_stream(url, download_type, temp_dir):
                 headers={
                     "Accept": "application/json",
                     "Content-Type": "application/json",
-                    "User-Agent": "Mozilla/5.0"
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
                 }
             )
-            try:
-                with urllib.request.urlopen(cobalt_req, timeout=8) as cres:
-                    cdata = json.loads(cres.read().decode())
-                    if cdata.get("status") in ["redirect", "stream"]:
+            with urllib.request.urlopen(cobalt_req, timeout=10) as cres:
+                cdata = json.loads(cres.read().decode())
+                if cdata.get("status") in ["redirect", "stream", "picker"]:
+                    if cdata.get("url"):
                         stream_url = cdata.get("url")
-                        video_info = {
-                            "title": "YumnaKashif_Media",
-                            "uploader": "Social Media Creator",
-                            "duration": 0,
-                            "thumbnail": None,
-                            "height": "HD"
-                        }
-            except Exception:
-                pass
+                    elif cdata.get("picker"):
+                        stream_url = cdata["picker"][0].get("url")
+        except Exception:
+            pass
+
+        # Method 2: Piped API Mirrors Fallback
+        if not stream_url:
+            vid_id = ""
+            if "youtu.be/" in url:
+                vid_id = url.split("youtu.be/")[1].split("?")[0]
+            elif "watch?v=" in url:
+                vid_id = url.split("watch?v=")[1].split("&")[0]
+            elif "shorts/" in url:
+                vid_id = url.split("shorts/")[1].split("?")[0]
+
+            if vid_id:
+                piped_instances = [
+                    "https://pipedapi.kavin.rocks",
+                    "https://piped-api.privacy.com.de",
+                    "https://api.piped.projectsegfault.net",
+                    "https://pipedapi.in.projectsegfault.net"
+                ]
+                for inst in piped_instances:
+                    try:
+                        req_url = f"{inst}/streams/{vid_id}"
+                        req = urllib.request.Request(req_url, headers={"User-Agent": "Mozilla/5.0"})
+                        with urllib.request.urlopen(req, timeout=5) as response:
+                            data = json.loads(response.read().decode())
+                            video_info["title"] = data.get("title", "YumnaKashif_Media")
+                            video_info["uploader"] = data.get("uploader", "Creator")
+                            video_info["duration"] = data.get("duration", 0)
+                            video_info["thumbnail"] = data.get("thumbnailUrl", None)
+
+                            if "Audio Only" in download_type:
+                                audio_streams = [s for s in data.get("audioStreams", []) if s.get("url")]
+                                if audio_streams:
+                                    stream_url = audio_streams[0]["url"]
+                                    break
+                            else:
+                                video_streams = [s for s in data.get("videoStreams", []) if s.get("url") and not s.get("videoOnly")]
+                                if video_streams:
+                                    stream_url = video_streams[0]["url"]
+                                    break
+                                elif data.get("videoStreams", []):
+                                    stream_url = data["videoStreams"][0]["url"]
+                                    break
+                    except Exception:
+                        continue
 
         if not stream_url:
-            return None, None, "Could not bypass host restriction. Stream URL not found."
+            return None, None, "Could not bypass host restriction. Please verify the URL or try another link."
 
-        # Download the file locally to temp directory
-        safe_title = "".join(c for c in video_info.get("title", "media") if c.isalnum() or c in " -_").strip()[:50]
+        # Download the stream locally to temp directory
+        safe_title = "".join(c for c in video_info["title"] if c.isalnum() or c in " -_").strip()[:50] or "media"
         ext = "m4a" if "Audio Only" in download_type else "mp4"
         filename = f"{safe_title}.{ext}"
         file_path = os.path.join(temp_dir, filename)
 
-        dl_req = urllib.request.Request(stream_url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(dl_req, timeout=30) as response, open(file_path, "wb") as out_file:
+        dl_req = urllib.request.Request(stream_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+        with urllib.request.urlopen(dl_req, timeout=45) as response, open(file_path, "wb") as out_file:
             out_file.write(response.read())
 
         if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
             return filename, video_info, None
         else:
-            return None, None, "Downloaded file is empty."
+            return None, None, "Downloaded file stream returned empty."
 
     except Exception as e:
         return None, None, str(e)
@@ -255,7 +250,7 @@ if st.session_state.show_settings:
     st.write("")
     st.subheader("ℹ️ About & Version")
     st.write("**Application:** YumnaKashif Universal Downloader")
-    st.write("**Version:** v12.0 Cloud-Bypass Engine")
+    st.write("**Version:** v13.0 Cloud Proxy Engine")
     st.markdown("### Made by **Mohd Kashif**")
     st.caption("AI & Full-Stack Developer")
 
@@ -282,7 +277,7 @@ else:
         if not url.strip():
             st.error("Please paste a valid video link first.")
         else:
-            with st.spinner("⚡ YumnaKashif Cloud Engine is fetching media..."):
+            with st.spinner("⚡ YumnaKashif Cloud Proxy is processing your media..."):
                 temp_dir = tempfile.mkdtemp()
                 filename, info_dict, error_msg = fetch_media_stream(url.strip(), download_type, temp_dir)
 
