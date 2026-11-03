@@ -164,7 +164,6 @@ else:
     
     download_type = st.radio("Format:", ["Video (MP4)", "Audio Only (MP3/M4A)"], horizontal=True)
     
-    # Quality selector ONLY shows when Video is selected
     if download_type == "Video (MP4)":
         quality_choice = st.selectbox(
             "Select Quality:",
@@ -181,7 +180,6 @@ else:
             with st.spinner("⚡ YumnaKashif AI is fetching & merging streams..."):
                 temp_dir = tempfile.mkdtemp()
                 
-                # Flexible format strings (no strict [ext=mp4] lock that causes 'Requested format not available')
                 if "Audio Only" in download_type:
                     primary_format = "bestaudio/best"
                 else:
@@ -197,11 +195,95 @@ else:
                     else:
                         primary_format = "best"
 
-                # Clean base options without conflicting custom HTTP headers
                 base_opts = {
                     "outtmpl": os.path.join(temp_dir, "%(title)s.%(ext)s"),
                     "noplaylist": True,
                     "quiet": True,
                     "no_warnings": True,
                     "nocheckcertificate": True,
-                    "
+                    "cachedir": False,
+                    "geo_bypass": True,
+                }
+
+                if FFMPEG_PATH:
+                    base_opts["ffmpeg_location"] = FFMPEG_PATH
+                    if "Video" in download_type:
+                        base_opts["merge_output_format"] = "mp4"
+
+                attempts = [
+                    {
+                        **base_opts,
+                        "format": primary_format,
+                    },
+                    {
+                        **base_opts,
+                        "format": primary_format,
+                        "extractor_args": {"youtube": {"player_client": ["android_vr", "web_embedded"]}},
+                    },
+                    {
+                        **base_opts,
+                        "format": "bestaudio/best" if "Audio Only" in download_type else "best",
+                        "extractor_args": {"youtube": {"player_client": ["android_vr", "mweb", "web"]}},
+                    }
+                ]
+
+                info_dict = None
+                last_error = None
+
+                for opts in attempts:
+                    try:
+                        for old_f in os.listdir(temp_dir):
+                            try:
+                                os.remove(os.path.join(temp_dir, old_f))
+                            except Exception:
+                                pass
+                        with yt_dlp.YoutubeDL(opts) as ydl:
+                            info_dict = ydl.extract_info(url, download=True)
+                        if os.listdir(temp_dir):
+                            break
+                    except Exception as err:
+                        last_error = err
+
+                downloaded_files = os.listdir(temp_dir)
+                if info_dict and downloaded_files:
+                    video_title = info_dict.get("title", "YumnaKashif_Media")
+                    uploader = info_dict.get("uploader", "Social Media Creator")
+                    duration = info_dict.get("duration", 0)
+                    thumbnail = info_dict.get("thumbnail", None)
+                    height = info_dict.get("height", "HD")
+
+                    file_path = os.path.join(temp_dir, downloaded_files[0])
+                    mime_type = "audio/mp4" if "Audio" in download_type else "video/mp4"
+
+                    st.session_state.history.append({
+                        "title": video_title,
+                        "type": download_type,
+                        "quality": quality_choice,
+                        "url": url
+                    })
+
+                    st.success("✅ Media Ready for Download!")
+                    col1, col2 = st.columns([1, 2])
+                    if thumbnail:
+                        col1.image(thumbnail)
+                    with col2:
+                        st.markdown(f"#### {video_title}")
+                        st.write(f"👤 **Creator:** {uploader}")
+                        if duration:
+                            st.write(f"⏱️ **Duration:** {int(duration) // 60}m {int(duration) % 60}s")
+                        if "Video" in download_type:
+                            st.write(f"🎯 **Quality:** {quality_choice} ({height}p)" if isinstance(height, int) else f"🎯 **Quality:** {quality_choice}")
+                        else:
+                            st.write("🎵 **Format:** High-Bitrate Audio")
+
+                    with open(file_path, "rb") as f:
+                        st.download_button(
+                            label=f"⬇️ Save {downloaded_files[0]} to Device",
+                            data=f,
+                            file_name=downloaded_files[0],
+                            mime=mime_type
+                        )
+                else:
+                    st.error(f"Download Error: {last_error}")
+
+# END OF FILE
