@@ -4,11 +4,10 @@ import os
 import tempfile
 import base64
 import glob
-import urllib.request
 import json
 import streamlit as st
 
-# Ensure imageio-ffmpeg is present for local media handling
+# Ensure imageio-ffmpeg is present
 try:
     import imageio_ffmpeg
     FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
@@ -102,120 +101,81 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
-# ----------------- UNIVERSAL MEDIA EXTRACTION ENGINE -----------------
+# ----------------- ROBUST DUAL-HANDLER EXTRACTION ENGINE -----------------
 def fetch_media_stream(url, download_type, temp_dir):
     try:
-        stream_url = None
-        video_info = {
-            "title": "YumnaKashif_Media",
-            "uploader": "Social Media Creator",
-            "duration": 0,
-            "thumbnail": None,
-            "height": "HD"
-        }
+        output_template = os.path.join(temp_dir, "%(title).50s.%(ext)s")
+        is_youtube = "youtube.com" in url or "youtu.be" in url
 
-        # 1. Instagram / Other Platforms Extraction via yt-dlp CLI
-        if "instagram.com" in url or "fb.watch" in url or "facebook.com" in url:
-            output_template = os.path.join(temp_dir, "%(title).50s.%(ext)s")
-            cmd = [
-                sys.executable, "-m", "yt_dlp",
-                "--no-playlist",
-                "--no-cache-dir",
-                "--no-check-certificates",
-                "--geo-bypass",
-                "--force-ipv4",
-                "--socket-timeout", "20",
-                "--write-info-json",
-                "-o", output_template,
-                url
-            ]
-            if FFMPEG_PATH:
-                cmd.extend(["--ffmpeg-location", FFMPEG_PATH])
-                if "Video" in download_type:
-                    cmd.extend(["--merge-output-format", "mp4"])
+        cmd = [
+            sys.executable, "-m", "yt_dlp",
+            "--no-playlist",
+            "--no-cache-dir",
+            "--no-check-certificates",
+            "--geo-bypass",
+            "--force-ipv4",
+            "--socket-timeout", "25",
+            "--write-info-json",
+            "-o", output_template,
+        ]
 
+        if FFMPEG_PATH:
+            cmd.extend(["--ffmpeg-location", FFMPEG_PATH])
+
+        # Handle YouTube specifically with single-stream combined format ('b' or 'ba/b') to prevent cloud 403 & format errors
+        if is_youtube:
+            if "Audio Only" in download_type:
+                cmd.extend(["-f", "ba/b"])
+            else:
+                # Force combined best single format for YouTube on cloud hosting
+                cmd.extend(["-f", "b"])
+            
+            # Use Android / MWeb client signature which bypasses YouTube's cloud datacenter block
+            cmd.extend(["--extractor-args", "youtube:player_client=android"])
+        else:
+            # Instagram & other platforms standard logic
+            if FFMPEG_PATH and "Video" in download_type:
+                cmd.extend(["--merge-output-format", "mp4"])
             if "Audio Only" in download_type:
                 cmd.extend(["--extract-audio", "--audio-format", "m4a"])
 
-            proc = subprocess.run(cmd, capture_output=True, text=True)
-            media_files = [
-                f for f in os.listdir(temp_dir)
-                if not f.endswith((".json", ".txt", ".part", ".ytdl"))
-            ]
-            if proc.returncode == 0 and media_files:
-                filename = media_files[0]
-                json_files = [f for f in os.listdir(temp_dir) if f.endswith(".info.json")]
-                if json_files:
-                    try:
-                        with open(os.path.join(temp_dir, json_files[0]), "r", encoding="utf-8") as jf:
-                            jdata = json.load(jf)
-                            video_info["title"] = jdata.get("title", "Instagram_Media")
-                            video_info["uploader"] = jdata.get("uploader", "Creator")
-                            video_info["thumbnail"] = jdata.get("thumbnail", None)
-                    except Exception:
-                        pass
-                return filename, video_info, None
-            else:
-                return None, None, "Could not fetch Instagram link. Ensure the post is public."
+        cmd.append(url)
 
-        # 2. YouTube Extraction via Piped API Mirrors
-        vid_id = ""
-        if "youtu.be/" in url:
-            vid_id = url.split("youtu.be/")[1].split("?")[0]
-        elif "watch?v=" in url:
-            vid_id = url.split("watch?v=")[1].split("&")[0]
-        elif "shorts/" in url:
-            vid_id = url.split("shorts/")[1].split("?")[0]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
 
-        if vid_id:
-            piped_instances = [
-                "https://pipedapi.kavin.rocks",
-                "https://piped-api.privacy.com.de",
-                "https://api.piped.projectsegfault.net"
-            ]
-            for inst in piped_instances:
+        media_files = [
+            f for f in os.listdir(temp_dir)
+            if not f.endswith((".json", ".txt", ".part", ".ytdl"))
+        ]
+
+        if proc.returncode == 0 and media_files:
+            filename = media_files[0]
+            video_info = {
+                "title": "YumnaKashif_Media",
+                "uploader": "Social Media Creator",
+                "duration": 0,
+                "thumbnail": None,
+                "height": "HD"
+            }
+            json_files = [f for f in os.listdir(temp_dir) if f.endswith(".info.json")]
+            if json_files:
                 try:
-                    req_url = f"{inst}/streams/{vid_id}"
-                    req = urllib.request.Request(req_url, headers={"User-Agent": "Mozilla/5.0"})
-                    with urllib.request.urlopen(req, timeout=5) as response:
-                        data = json.loads(response.read().decode())
-                        video_info["title"] = data.get("title", "YumnaKashif_Media")
-                        video_info["uploader"] = data.get("uploader", "Creator")
-                        video_info["duration"] = data.get("duration", 0)
-                        video_info["thumbnail"] = data.get("thumbnailUrl", None)
-
-                        if "Audio Only" in download_type:
-                            audio_streams = [s for s in data.get("audioStreams", []) if s.get("url")]
-                            if audio_streams:
-                                stream_url = audio_streams[0]["url"]
-                                break
-                        else:
-                            video_streams = [s for s in data.get("videoStreams", []) if s.get("url") and not s.get("videoOnly")]
-                            if video_streams:
-                                stream_url = video_streams[0]["url"]
-                                break
-                            elif data.get("videoStreams", []):
-                                stream_url = data["videoStreams"][0]["url"]
-                                break
+                    with open(os.path.join(temp_dir, json_files[0]), "r", encoding="utf-8") as jf:
+                        jdata = json.load(jf)
+                        video_info["title"] = jdata.get("title", "Media_File")
+                        video_info["uploader"] = jdata.get("uploader", "Creator")
+                        video_info["thumbnail"] = jdata.get("thumbnail", None)
+                        video_info["duration"] = jdata.get("duration", 0)
                 except Exception:
-                    continue
-
-        if not stream_url:
-            return None, None, "Could not retrieve media stream. Please verify the URL."
-
-        safe_title = "".join(c for c in video_info["title"] if c.isalnum() or c in " -_").strip()[:50] or "media"
-        ext = "m4a" if "Audio Only" in download_type else "mp4"
-        filename = f"{safe_title}.{ext}"
-        file_path = os.path.join(temp_dir, filename)
-
-        dl_req = urllib.request.Request(stream_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
-        with urllib.request.urlopen(dl_req, timeout=45) as response, open(file_path, "wb") as out_file:
-            out_file.write(response.read())
-
-        if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+                    pass
             return filename, video_info, None
         else:
-            return None, None, "Downloaded file stream returned empty."
+            err_msg = "Unknown download failure."
+            for line in proc.stderr.splitlines():
+                if "ERROR:" in line:
+                    err_msg = line
+                    break
+            return None, None, err_msg
 
     except Exception as e:
         return None, None, str(e)
@@ -261,7 +221,7 @@ if st.session_state.show_settings:
     st.write("")
     st.subheader("ℹ️ About & Version")
     st.write("**Application:** YumnaKashif Universal Downloader")
-    st.write("**Version:** v14.0 Direct Hybrid Engine")
+    st.write("**Version:** v15.0 Cloud-Optimized Engine")
     st.markdown("### Made by **Mohd Kashif**")
     st.caption("AI & Full-Stack Developer")
 
@@ -275,6 +235,7 @@ else:
     
     download_type = st.radio("Format:", ["Video (MP4)", "Audio Only (MP3/M4A)"], horizontal=True)
     
+    # Quality selector box hides completely when Audio is selected
     if download_type == "Video (MP4)":
         quality_choice = st.selectbox(
             "Select Quality:",
@@ -290,7 +251,7 @@ else:
         else:
             with st.spinner("⚡ YumnaKashif Engine is processing your media..."):
                 temp_dir = tempfile.mkdtemp()
-                filename, info_dict, error_msg = fetch_media_stream(url.strip(), download_type, temp_dir)
+                filename, info_dict, error_msg = fetch_media_stream(url.strip(), download_type, temp_dir, quality_choice if 'quality_choice' in locals() else "Best")
 
                 if filename:
                     file_path = os.path.join(temp_dir, filename)
