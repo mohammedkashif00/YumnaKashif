@@ -166,7 +166,7 @@ if st.session_state.show_settings:
     st.markdown('<div class="glass-card" style="text-align: center;">', unsafe_allow_html=True)
     st.subheader("ℹ️ About & Version")
     st.write("**Application:** YumnaKashif Universal Downloader")
-    st.write("**Version:** v7.1.0 Clean Pro")
+    st.write("**Version:** v7.2.0 Clean Pro")
     st.markdown("---")
     st.markdown("### Made by **Mohd Kashif**")
     st.caption("AI & Full-Stack Developer")
@@ -272,4 +272,3 @@ else:
                         st.error("Could not find the downloaded stream file.")
                 except Exception as e:
                     st.error(f"Download Error: {e}")
-    st.markdown('</div>', unsafe_allow_html=True)
