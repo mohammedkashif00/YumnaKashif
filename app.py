@@ -1,4 +1,12 @@
-import streamlit as st
+import subprocess
+import sys
+
+# Auto-install missing packages on Streamlit Cloud if not already present
+for package in ["yt-dlp", "imageio-ffmpeg"]:
+    try:
+        __import__(package)
+    except ImportError:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package])import streamlit as st
 import yt_dlp
 import os
 import tempfile
