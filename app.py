@@ -1,29 +1,31 @@
 import subprocess
 import sys
 import os
-
-# 1. Force update yt-dlp to the latest nightly/release build before importing
-if "yt_dlp_updated" not in os.environ:
-    try:
-        subprocess.check_call(
-            [sys.executable, "-m", "pip", "install", "--upgrade", "--pre", "yt-dlp", "imageio-ffmpeg"]
-        )
-        os.environ["yt_dlp_updated"] = "1"
-    except Exception:
-        pass
-
-import streamlit as st
-import yt_dlp
+import shutil
 import tempfile
 import base64
 import glob
+import json
+import urllib.request
+import streamlit as st
 
-# Load ffmpeg for stream merging & audio extraction
-try:
-    import imageio_ffmpeg
-    FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
-except Exception:
-    FFMPEG_PATH = None
+# 1. Force upgrade yt-dlp and imageio-ffmpeg on container boot
+@st.cache_resource
+def ensure_latest_binaries():
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--upgrade", "--pre", "yt-dlp", "imageio-ffmpeg"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        pass
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return None
 
 st.set_page_config(
     page_title="YumnaKashif | Universal Media Suite",
@@ -31,6 +33,8 @@ st.set_page_config(
     layout="centered",
     initial_sidebar_state="collapsed"
 )
+
+FFMPEG_PATH = ensure_latest_binaries()
 
 def get_background_base64():
     candidates = ["portrait.jpg", "portrait.png", "IMG_0191.jpg", "IMG_0191.jpeg"]
@@ -112,6 +116,106 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
+# ----------------- ISOLATED SUBPROCESS DOWNLOAD ENGINE -----------------
+def download_via_cli(url, download_type, quality_choice, temp_dir):
+    """
+    Runs yt-dlp in a fresh isolated OS process so it always uses the newly upgraded
+    binary and never suffers from Python memory/session caching or 403 poisoning.
+    """
+    output_template = os.path.join(temp_dir, "%(title).80s.%(ext)s")
+
+    # Sort preference instead of rigid format filter so it never fails with 'format not available'
+    if "Audio Only" in download_type:
+        sort_arg = "abr,ext:m4a:mp3"
+    elif "1080p" in quality_choice:
+        sort_arg = "res:1080,ext:mp4:m4a"
+    elif "720p" in quality_choice:
+        sort_arg = "res:720,ext:mp4:m4a"
+    elif "480p" in quality_choice:
+        sort_arg = "res:480,ext:mp4:m4a"
+    else:
+        sort_arg = "ext:mp4:m4a"
+
+    base_cmd = [
+        sys.executable, "-m", "yt_dlp",
+        "--no-playlist",
+        "--no-cache-dir",
+        "--no-check-certificates",
+        "--geo-bypass",
+        "--force-ipv4",
+        "--Socket-timeout", "20",
+        "--Write-info-json",
+        "-S", sort_arg,
+        "-o", output_template,
+    ]
+
+    if FFMPEG_PATH:
+        base_cmd.extend(["--ffmpeg-location", FFMPEG_PATH])
+        if "Video" in download_type:
+            base_cmd.extend(["--merge-output-format", "mp4"])
+
+    if "Audio Only" in download_type:
+        base_cmd.extend(["-f", "ba/b"])
+
+    # Client profiles ordered by highest success rate against Cloud 403 blocks
+    profiles = [
+        # Profile 1: Android VR (Does not require PO token or cookies, bypasses 403 on cloud IPs)
+        ["--extractor-args", "youtube:player_client=android_vr"],
+        # Profile 2: iOS + TV Embedded (Great for Shorts & Reels)
+        ["--extractor-args", "youtube:player_client=ios,tv_embedded"],
+        # Profile 3: Android Testsuite / MediaConnect
+        ["--extractor-args", "youtube:player_client=android_testsuite,mediaconnect"],
+        # Profile 4: Mobile Web
+        ["--extractor-args", "youtube:player_client=mweb"],
+    ]
+
+    # If cookies.txt exists, add a dedicated read-only cookie clone profile for web/tv
+    if os.path.exists("cookies.txt") and os.path.getsize("cookies.txt") > 0:
+        cookie_clone = os.path.join(temp_dir, "temp_cookies.txt")
+        shutil.copyfile("cookies.txt", cookie_clone)
+        profiles.append(["--cookies", cookie_clone, "--extractor-args", "youtube:player_client=tv,web"])
+
+    last_err = "Unknown extraction error"
+
+    for profile_args in profiles:
+        # Clean temp directory before each attempt (except temp_cookies.txt)
+        for f in os.listdir(temp_dir):
+            if f != "temp_cookies.txt":
+                try:
+                    os.remove(os.path.join(temp_dir, f))
+                except Exception:
+                    pass
+
+        cmd = base_cmd + profile_args + [url]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+
+        # Look for downloaded media file (excluding .info.json and .txt)
+        media_files = [
+            f for f in os.listdir(temp_dir)
+            if not f.endswith(".json") and not f.endswith(".txt") and not f.endswith(".part") and not f.endswith(".ytdl")
+        ]
+
+        if proc.returncode == 0 and media_files:
+            # Parse metadata from info.json if available
+            info_data = {}
+            json_files = [f for f in os.listdir(temp_dir) if f.endswith(".info.json")]
+            if json_files:
+                try:
+                    with open(os.path.join(temp_dir, json_files[0]), "r", encoding="utf-8") as jf:
+                        info_data = json.load(jf)
+                except Exception:
+                    pass
+            return media_files[0], info_data, None
+        else:
+            err_lines = [line for line in proc.stderr.splitlines() if "ERROR:" in line]
+            if err_lines:
+                last_err = err_lines[-1]
+            elif proc.stderr:
+                last_err = proc.stderr.strip()[-300:]
+
+    return None, None, last_err
+
+
 # ----------------- TOP BAR: TITLE & SETTINGS TOGGLE -----------------
 top_col1, top_col2 = st.columns([5, 1])
 with top_col1:
@@ -152,7 +256,7 @@ if st.session_state.show_settings:
     st.write("")
     st.subheader("ℹ️ About & Version")
     st.write("**Application:** YumnaKashif Universal Downloader")
-    st.write("**Version:** v9.0.0 Zero-Error Format Sort Engine")
+    st.write("**Version:** v10.0.0 Subprocess Anti-403 Engine")
     st.markdown("### Made by **Mohd Kashif**")
     st.caption("AI & Full-Stack Developer")
 
@@ -179,103 +283,18 @@ else:
         if not url.strip():
             st.error("Please paste a valid video link first.")
         else:
-            with st.spinner("⚡ YumnaKashif AI is fetching & merging streams..."):
+            with st.spinner("⚡ YumnaKashif AI is extracting unthrottled media stream..."):
                 temp_dir = tempfile.mkdtemp()
-                
-                # Use format_sort instead of strict format filters so yt-dlp NEVER fails with "Requested format is not available"
-                format_sort = []
-                if "Audio Only" not in download_type:
-                    if "1080p" in quality_choice:
-                        format_sort = ["res:1080", "ext:mp4:m4a"]
-                    elif "720p" in quality_choice:
-                        format_sort = ["res:720", "ext:mp4:m4a"]
-                    elif "480p" in quality_choice:
-                        format_sort = ["res:480", "ext:mp4:m4a"]
-                    else:
-                        format_sort = ["ext:mp4:m4a"]
+                filename, info_dict, error_msg = download_via_cli(url.strip(), download_type, quality_choice, temp_dir)
 
-                base_opts = {
-                    "outtmpl": os.path.join(temp_dir, "%(title)s.%(ext)s"),
-                    "noplaylist": True,
-                    "quiet": True,
-                    "no_warnings": True,
-                    "nocheckcertificate": True,
-                    "cachedir": False,
-                    "geo_bypass": True,
-                    "ignore_no_formats_error": True,
-                }
+                if filename:
+                    file_path = os.path.join(temp_dir, filename)
+                    video_title = info_dict.get("title", filename) if info_dict else filename
+                    uploader = info_dict.get("uploader", "Social Media Creator") if info_dict else "Creator"
+                    duration = info_dict.get("duration", 0) if info_dict else 0
+                    thumbnail = info_dict.get("thumbnail", None) if info_dict else None
+                    height = info_dict.get("height", "HD") if info_dict else "HD"
 
-                if format_sort:
-                    base_opts["format_sort"] = format_sort
-
-                if FFMPEG_PATH:
-                    base_opts["ffmpeg_location"] = FFMPEG_PATH
-                    if "Video" in download_type:
-                        base_opts["merge_output_format"] = "mp4"
-
-                has_cookies = os.path.exists("cookies.txt") and os.path.getsize("cookies.txt") > 0
-
-                # Build non-conflicting client stages (Never mix cookies.txt with android/ios clients)
-                attempts = []
-                
-                if has_cookies:
-                    # Stage 1 (With Cookies): Web / MWeb / TV clients support cookies properly
-                    attempts.append({
-                        **base_opts,
-                        "cookiefile": "cookies.txt",
-                        "extractor_args": {"youtube": {"player_client": ["web", "mweb", "tv"]}},
-                    })
-                    # Stage 2 (With Cookies): Default extractor without forced format string
-                    attempts.append({
-                        **base_opts,
-                        "cookiefile": "cookies.txt",
-                    })
-
-                # Stage 3 (Cookie-less Fallback): tv_embedded & android_vr work without cookies or PO tokens
-                attempts.append({
-                    **base_opts,
-                    "extractor_args": {"youtube": {"player_client": ["tv_embedded", "android_vr", "mweb"]}},
-                })
-
-                # Stage 4 (Cookie-less iOS/Android Fallback): Pure mobile extraction without cookie conflict
-                attempts.append({
-                    **base_opts,
-                    "extractor_args": {"youtube": {"player_client": ["ios", "android"]}},
-                })
-
-                info_dict = None
-                last_error = None
-
-                for opts in attempts:
-                    try:
-                        # Clean any leftover partial files before each attempt
-                        for old_f in os.listdir(temp_dir):
-                            try:
-                                os.remove(os.path.join(temp_dir, old_f))
-                            except Exception:
-                                pass
-
-                        # Only specify audio format when Audio Only is chosen; otherwise let yt-dlp auto-pick best available
-                        if "Audio Only" in download_type:
-                            opts["format"] = "bestaudio/best"
-
-                        with yt_dlp.YoutubeDL(opts) as ydl:
-                            info_dict = ydl.extract_info(url, download=True)
-                        
-                        if os.listdir(temp_dir):
-                            break
-                    except Exception as err:
-                        last_error = err
-
-                downloaded_files = os.listdir(temp_dir)
-                if info_dict and downloaded_files:
-                    video_title = info_dict.get("title", "YumnaKashif_Media")
-                    uploader = info_dict.get("uploader", "Social Media Creator")
-                    duration = info_dict.get("duration", 0)
-                    thumbnail = info_dict.get("thumbnail", None)
-                    height = info_dict.get("height", "HD")
-
-                    file_path = os.path.join(temp_dir, downloaded_files[0])
                     mime_type = "audio/mp4" if "Audio" in download_type else "video/mp4"
 
                     st.session_state.history.append({
@@ -301,10 +320,10 @@ else:
 
                     with open(file_path, "rb") as f:
                         st.download_button(
-                            label=f"⬇️ Save {downloaded_files[0]} to Device",
+                            label=f"⬇️ Save {filename} to Device",
                             data=f,
-                            file_name=downloaded_files[0],
+                            file_name=filename,
                             mime=mime_type
                         )
                 else:
-                    st.error(f"Download Error: {last_error}")
+                    st.error(f"Download Error: {error_msg}")
