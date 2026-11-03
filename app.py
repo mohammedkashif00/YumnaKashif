@@ -150,7 +150,7 @@ if st.session_state.show_settings:
     st.write("")
     st.subheader("ℹ️ About & Version")
     st.write("**Application:** YumnaKashif Universal Downloader")
-    st.write("**Version:** v8.5.0 Bulletproof Format Engine")
+    st.write("**Version:** v8.6.0 Universal Stream Engine")
     st.markdown("### Made by **Mohd Kashif**")
     st.caption("AI & Full-Stack Developer")
 
@@ -180,7 +180,7 @@ else:
             with st.spinner("⚡ YumnaKashif AI is fetching & merging streams..."):
                 temp_dir = tempfile.mkdtemp()
                 
-                # Foolproof format strings with safe universal fallbacks (/best)
+                # Foolproof format strings with universal fallbacks for Shorts, Reels, and regular videos
                 if "Audio Only" in download_type:
                     primary_format = "bestaudio/best"
                 else:
@@ -192,7 +192,7 @@ else:
                         elif "480p" in quality_choice:
                             primary_format = "bestvideo[height<=480]+bestaudio/best[height<=480]/best"
                         else:
-                            primary_format = "bestvideo+bestaudio/best/best"
+                            primary_format = "bestvideo+bestaudio/best"
                     else:
                         primary_format = "best"
 
@@ -214,7 +214,7 @@ else:
                     if "Video" in download_type:
                         base_opts["merge_output_format"] = "mp4"
 
-                # Multi-Platform Robust Bypass Engine
+                # Multi-Platform Robust Bypass Engine with Ultimate 'best' Fallback
                 attempts = [
                     {
                         **base_opts,
@@ -228,7 +228,7 @@ else:
                     },
                     {
                         **base_opts,
-                        "format": "bestaudio/best" if "Audio Only" in download_type else "best",
+                        "format": "best",
                         "extractor_args": {"youtube": {"player_client": ["web"]}},
                     }
                 ]
