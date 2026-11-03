@@ -102,7 +102,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ----------------- ROBUST DUAL-HANDLER EXTRACTION ENGINE -----------------
-def fetch_media_stream(url, download_type, temp_dir):
+def fetch_media_stream(url, download_type, temp_dir, quality_choice="Best"):
     try:
         output_template = os.path.join(temp_dir, "%(title).50s.%(ext)s")
         is_youtube = "youtube.com" in url or "youtu.be" in url
@@ -122,18 +122,15 @@ def fetch_media_stream(url, download_type, temp_dir):
         if FFMPEG_PATH:
             cmd.extend(["--ffmpeg-location", FFMPEG_PATH])
 
-        # Handle YouTube specifically with single-stream combined format ('b' or 'ba/b') to prevent cloud 403 & format errors
+        # Handle YouTube specifically with single-stream combined format ('b') to prevent cloud 403 & format errors
         if is_youtube:
             if "Audio Only" in download_type:
                 cmd.extend(["-f", "ba/b"])
             else:
-                # Force combined best single format for YouTube on cloud hosting
                 cmd.extend(["-f", "b"])
             
-            # Use Android / MWeb client signature which bypasses YouTube's cloud datacenter block
             cmd.extend(["--extractor-args", "youtube:player_client=android"])
         else:
-            # Instagram & other platforms standard logic
             if FFMPEG_PATH and "Video" in download_type:
                 cmd.extend(["--merge-output-format", "mp4"])
             if "Audio Only" in download_type:
@@ -221,7 +218,7 @@ if st.session_state.show_settings:
     st.write("")
     st.subheader("ℹ️ About & Version")
     st.write("**Application:** YumnaKashif Universal Downloader")
-    st.write("**Version:** v15.0 Cloud-Optimized Engine")
+    st.write("**Version:** v15.1 Cloud-Optimized Engine")
     st.markdown("### Made by **Mohd Kashif**")
     st.caption("AI & Full-Stack Developer")
 
@@ -235,7 +232,6 @@ else:
     
     download_type = st.radio("Format:", ["Video (MP4)", "Audio Only (MP3/M4A)"], horizontal=True)
     
-    # Quality selector box hides completely when Audio is selected
     if download_type == "Video (MP4)":
         quality_choice = st.selectbox(
             "Select Quality:",
@@ -251,7 +247,12 @@ else:
         else:
             with st.spinner("⚡ YumnaKashif Engine is processing your media..."):
                 temp_dir = tempfile.mkdtemp()
-                filename, info_dict, error_msg = fetch_media_stream(url.strip(), download_type, temp_dir, quality_choice if 'quality_choice' in locals() else "Best")
+                filename, info_dict, error_msg = fetch_media_stream(
+                    url.strip(), 
+                    download_type, 
+                    temp_dir, 
+                    quality_choice if 'quality_choice' in locals() else "Best"
+                )
 
                 if filename:
                     file_path = os.path.join(temp_dir, filename)
