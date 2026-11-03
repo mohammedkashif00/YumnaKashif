@@ -6,7 +6,9 @@ for package in ["yt-dlp", "imageio-ffmpeg"]:
     try:
         __import__(package)
     except ImportError:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", package])import streamlit as st
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+
+import streamlit as st
 import yt_dlp
 import os
 import tempfile
