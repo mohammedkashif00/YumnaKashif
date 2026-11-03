@@ -45,7 +45,6 @@ def get_background_base64():
     return ""
 
 def send_real_gmail_otp(receiver_email, otp_code):
-    # Uses secure server secrets stored in Streamlit Cloud Dashboard -> Settings -> Secrets
     sender_email = st.secrets.get("GMAIL_SENDER", os.environ.get("GMAIL_SENDER", ""))
     app_password = st.secrets.get("GMAIL_APP_PASSWORD", os.environ.get("GMAIL_APP_PASSWORD", ""))
     
@@ -62,7 +61,10 @@ def send_real_gmail_otp(receiver_email, otp_code):
         f"If you did not request this code, please ignore this email.\n\n"
         f"Made by Mohd Kashif"
     )
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+    
+    # Using Port 587 with STARTTLS for stable cloud connectivity
+    with smtplib.SMTP("smtp.gmail.com", 587, timeout=15) as server:
+        server.starttls()
         server.login(sender_email, app_password.replace(" ", ""))
         server.send_message(msg)
 
@@ -271,7 +273,7 @@ if st.session_state.show_settings:
     st.markdown('<div class="glass-card" style="text-align: center;">', unsafe_allow_html=True)
     st.subheader("ℹ️ About & Version")
     st.write("**Application:** YumnaKashif Universal Downloader")
-    st.write("**Version:** v6.1.0 Pro (OTP Secure)")
+    st.write("**Version:** v6.1.1 Pro (OTP Secure)")
     st.markdown("---")
     st.markdown("### Made by **Mohd Kashif**")
     st.caption("AI & Full-Stack Developer")
