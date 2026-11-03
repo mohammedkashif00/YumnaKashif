@@ -151,7 +151,7 @@ if st.session_state.show_settings:
     st.markdown("---")
     st.subheader("ℹ️ About & Version")
     st.write("**Application:** YumnaKashif Universal Downloader")
-    st.write("**Version:** v7.3.0 Boxless Pro")
+    st.write("**Version:** v7.4.0 Dynamic Pro")
     st.markdown("---")
     st.markdown("### Made by **Mohd Kashif**")
     st.caption("AI & Full-Stack Developer")
@@ -161,14 +161,16 @@ else:
     st.subheader("📥 Download Ultra-HD Video or Audio")
     url = st.text_input("🔗 Paste YouTube, Instagram, or Social Media Link:", placeholder="https://www.youtube.com/watch?v=... or https://www.instagram.com/reel/...")
     
-    col_opt1, col_opt2 = st.columns(2)
-    with col_opt1:
-        download_type = st.radio("Format:", ["Video (MP4)", "Audio Only (MP3/M4A)"], horizontal=True)
-    with col_opt2:
+    # Conditional Layout: Quality selector only appears if Video format is chosen
+    download_type = st.radio("Format:", ["Video (MP4)", "Audio Only (MP3/M4A)"], horizontal=True)
+    
+    if download_type == "Video (MP4)":
         quality_choice = st.selectbox(
             "Select Quality:",
             ["Best Available (1080p/4K)", "1080p Full HD", "720p HD", "480p Fast"]
         )
+    else:
+        quality_choice = "Best Available Audio"
 
     st.write("")
     if st.button("🚀 Fetch & Download Media"):
@@ -202,19 +204,14 @@ else:
                         "quiet": True,
                         "no_warnings": True,
                         "nocheckcertificate": True,
+                        "extractor_args": {"youtube": {"player_client": ["ios", "android", "web"]}},
                     }
 
                     if FFMPEG_PATH:
                         ydl_opts["ffmpeg_location"] = FFMPEG_PATH
 
-                    try:
-                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                            info_dict = ydl.extract_info(url, download=True)
-                    except Exception:
-                        ydl_opts["format"] = "best[ext=mp4]/best"
-                        ydl_opts["extractor_args"] = {"youtube": {"player_client": ["ios", "android", "web"]}}
-                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                            info_dict = ydl.extract_info(url, download=True)
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        info_dict = ydl.extract_info(url, download=True)
 
                     video_title = info_dict.get("title", "YumnaKashif_Media")
                     uploader = info_dict.get("uploader", "Social Media Creator")
