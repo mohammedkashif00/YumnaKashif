@@ -8,12 +8,15 @@ import glob
 import json
 import streamlit as st
 
-# 1. Force upgrade yt-dlp and imageio-ffmpeg on container boot
+# 1. Install/upgrade yt-dlp, pytubefix (backup engine), and PO-token plugin on startup
 @st.cache_resource
-def ensure_latest_binaries():
+def setup_environment():
     try:
         subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--upgrade", "--pre", "yt-dlp", "imageio-ffmpeg"],
+            [
+                sys.executable, "-m", "pip", "install", "--upgrade", "--pre",
+                "yt-dlp", "imageio-ffmpeg", "pytubefix", "bgutil-ytdlp-pot-provider"
+            ],
             check=False,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -33,7 +36,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-FFMPEG_PATH = ensure_latest_binaries()
+FFMPEG_PATH = setup_environment()
 
 def get_background_base64():
     candidates = ["portrait.jpg", "portrait.png", "IMG_0191.jpg", "IMG_0191.jpeg"]
@@ -115,25 +118,120 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
-# ----------------- ISOLATED SUBPROCESS DOWNLOAD ENGINE -----------------
-def download_via_cli(url, download_type, quality_choice, temp_dir):
-    """
-    Runs yt-dlp in a fresh isolated OS process so it always uses the newly upgraded
-    binary and never suffers from Python memory/session caching or 403 poisoning.
-    """
-    output_template = os.path.join(temp_dir, "%(title).80s.%(ext)s")
 
-    # Sort preference instead of rigid format filter so it never fails with 'format not available'
+# ----------------- ENGINE 1: PYTUBEFIX (CLOUD-RESILIENT YOUTUBE ENGINE) -----------------
+def download_via_pytubefix(url, download_type, quality_choice, temp_dir):
+    """
+    Uses pytubefix with Android/WEB_EMBED clients as a primary/backup extractor
+    specifically for YouTube links when yt-dlp gets 'Requested format is not available'.
+    """
+    if "youtube.com" not in url and "youtu.be" not in url:
+        return None, None, "Not a YouTube URL"
+
+    try:
+        from pytubefix import YouTube
+    except ImportError:
+        return None, None, "pytubefix not installed"
+
+    clients_to_try = ["WEB", "ANDROID_VR", "IOS", "MWEB", "TV_EMBED"]
+    last_pt_err = ""
+
+    for client_name in clients_to_try:
+        try:
+            yt = YouTube(url, client=client_name)
+            title = yt.title or "YumnaKashif_Media"
+            safe_title = "".join(c for c in title if c.isalnum() or c in " -_").strip()[:70] or "video"
+
+            if "Audio Only" in download_type:
+                stream = yt.streams.get_audio_only()
+                if stream:
+                    out_file = stream.download(output_path=temp_dir, filename=f"{safe_title}.m4a")
+                    return os.path.basename(out_file), {
+                        "title": title,
+                        "uploader": yt.author,
+                        "duration": yt.length,
+                        "thumbnail": yt.thumbnail_url,
+                        "height": "Audio",
+                    }, None
+            else:
+                # Target resolution cap
+                target_res = None
+                if "1080p" in quality_choice:
+                    target_res = 1080
+                elif "720p" in quality_choice:
+                    target_res = 720
+                elif "480p" in quality_choice:
+                    target_res = 480
+
+                # First try progressive (pre-merged video+audio) or adaptive with ffmpeg merge
+                prog_streams = yt.streams.filter(progressive=True, file_extension="mp4").order_by("resolution").desc()
+                adap_video = yt.streams.filter(adaptive=True, only_video=True, file_extension="mp4").order_by("resolution").desc()
+                adap_audio = yt.streams.get_audio_only()
+
+                chosen_v = None
+                if FFMPEG_PATH and adap_video and adap_audio:
+                    for s in adap_video:
+                        res_num = int(s.resolution.replace("p", "")) if s.resolution and s.resolution.endswith("p") else 0
+                        if target_res is None or res_num <= target_res:
+                            chosen_v = s
+                            break
+                    if not chosen_v:
+                        chosen_v = adap_video.first()
+
+                # If adaptive chosen and<=720p progressive exists, check if progressive matches target
+                if chosen_v and FFMPEG_PATH and adap_audio:
+                    v_path = chosen_v.download(output_path=temp_dir, filename="temp_v.mp4")
+                    a_path = adap_audio.download(output_path=temp_dir, filename="temp_a.m4a")
+                    final_name = f"{safe_title}.mp4"
+                    final_path = os.path.join(temp_dir, final_name)
+                    subprocess.run(
+                        [FFMPEG_PATH, "-y", "-i", v_path, "-i", a_path, "-c:v", "copy", "-c:a", "aac", final_path],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                    if os.path.exists(final_path) and os.path.getsize(final_path) > 0:
+                        res_str = chosen_v.resolution.replace("p", "") if chosen_v.resolution else "HD"
+                        return final_name, {
+                            "title": title,
+                            "uploader": yt.author,
+                            "duration": yt.length,
+                            "thumbnail": yt.thumbnail_url,
+                            "height": int(res_str) if res_str.isdigit() else res_str,
+                        }, None
+
+                # Fallback to direct progressive stream
+                if prog_streams:
+                    stream = prog_streams.first()
+                    out_file = stream.download(output_path=temp_dir, filename=f"{safe_title}.mp4")
+                    res_str = stream.resolution.replace("p", "") if stream.resolution else "HD"
+                    return os.path.basename(out_file), {
+                        "title": title,
+                        "uploader": yt.author,
+                        "duration": yt.length,
+                        "thumbnail": yt.thumbnail_url,
+                        "height": int(res_str) if res_str.isdigit() else res_str,
+                    }, None
+        except Exception as e:
+            last_pt_err = str(e)
+            continue
+
+    return None, None, last_pt_err
+
+
+# ----------------- ENGINE 2: YT-DLP SUBPROCESS ENGINE -----------------
+def download_via_ytdlp_cli(url, download_type, quality_choice, temp_dir):
+    output_template = os.path.join(temp_dir, "%(title).70s.%(ext)s")
+
     if "Audio Only" in download_type:
-        sort_arg = "abr,ext:m4a:mp3"
+        sort_arg = "hasaud,abr,ext:m4a:mp3"
     elif "1080p" in quality_choice:
-        sort_arg = "res:1080,ext:mp4:m4a"
+        sort_arg = "hasvid,res:1080,ext:mp4:m4a"
     elif "720p" in quality_choice:
-        sort_arg = "res:720,ext:mp4:m4a"
+        sort_arg = "hasvid,res:720,ext:mp4:m4a"
     elif "480p" in quality_choice:
-        sort_arg = "res:480,ext:mp4:m4a"
+        sort_arg = "hasvid,res:480,ext:mp4:m4a"
     else:
-        sort_arg = "ext:mp4:m4a"
+        sort_arg = "hasvid,ext:mp4:m4a"
 
     base_cmd = [
         sys.executable, "-m", "yt_dlp",
@@ -153,31 +251,29 @@ def download_via_cli(url, download_type, quality_choice, temp_dir):
         if "Video" in download_type:
             base_cmd.extend(["--merge-output-format", "mp4"])
 
+    # Notice: NO "-f" flag is passed for video so yt-dlp never fails with "Requested format is not available"
+    # It automatically picks the top format sorted by "-S" above.
     if "Audio Only" in download_type:
-        base_cmd.extend(["-f", "ba/b"])
+        base_cmd.extend(["--extract-audio", "--audio-format", "m4a"])
 
-    # Client profiles ordered by highest success rate against Cloud 403 blocks
     profiles = [
-        # Profile 1: Android VR (Does not require PO token or cookies, bypasses 403 on cloud IPs)
-        ["--extractor-args", "youtube:player_client=android_vr"],
-        # Profile 2: iOS + TV Embedded (Great for Shorts & Reels)
-        ["--extractor-args", "youtube:player_client=ios,tv_embedded"],
-        # Profile 3: Android Testsuite / MediaConnect
-        ["--extractor-args", "youtube:player_client=android_testsuite,mediaconnect"],
-        # Profile 4: Mobile Web
-        ["--extractor-args", "youtube:player_client=mweb"],
+        # Profile 1: Default client with no restrictions
+        [],
+        # Profile 2: Android VR + TV Embedded
+        ["--extractor-args", "youtube:player_client=android_vr,tv_embedded"],
+        # Profile 3: iOS + Mobile Web
+        ["--extractor-args", "youtube:player_client=ios,mweb"],
     ]
 
-    # If cookies.txt exists, add a dedicated read-only cookie clone profile for web/tv
+    # Only try cookies.txt as a FIRST attempt if present, and don't let its failure hide earlier errors
     if os.path.exists("cookies.txt") and os.path.getsize("cookies.txt") > 0:
         cookie_clone = os.path.join(temp_dir, "temp_cookies.txt")
         shutil.copyfile("cookies.txt", cookie_clone)
-        profiles.append(["--cookies", cookie_clone, "--extractor-args", "youtube:player_client=tv,web"])
+        profiles.insert(0, ["--cookies", cookie_clone])
 
-    last_err = "Unknown extraction error"
+    errors_collected = []
 
     for profile_args in profiles:
-        # Clean temp directory before each attempt (except temp_cookies.txt)
         for f in os.listdir(temp_dir):
             if f != "temp_cookies.txt":
                 try:
@@ -188,14 +284,12 @@ def download_via_cli(url, download_type, quality_choice, temp_dir):
         cmd = base_cmd + profile_args + [url]
         proc = subprocess.run(cmd, capture_output=True, text=True)
 
-        # Look for downloaded media file (excluding .info.json and .txt)
         media_files = [
             f for f in os.listdir(temp_dir)
-            if not f.endswith(".json") and not f.endswith(".txt") and not f.endswith(".part") and not f.endswith(".ytdl")
+            if not f.endswith((".json", ".txt", ".part", ".ytdl", ".jpg", ".webp", ".png"))
         ]
 
         if proc.returncode == 0 and media_files:
-            # Parse metadata from info.json if available
             info_data = {}
             json_files = [f for f in os.listdir(temp_dir) if f.endswith(".info.json")]
             if json_files:
@@ -208,11 +302,9 @@ def download_via_cli(url, download_type, quality_choice, temp_dir):
         else:
             err_lines = [line for line in proc.stderr.splitlines() if "ERROR:" in line]
             if err_lines:
-                last_err = err_lines[-1]
-            elif proc.stderr:
-                last_err = proc.stderr.strip()[-300:]
+                errors_collected.append(err_lines[-1])
 
-    return None, None, last_err
+    return None, None, " | ".join(dict.fromkeys(errors_collected)) if errors_collected else "Extraction blocked by host IP"
 
 
 # ----------------- TOP BAR: TITLE & SETTINGS TOGGLE -----------------
@@ -255,7 +347,7 @@ if st.session_state.show_settings:
     st.write("")
     st.subheader("ℹ️ About & Version")
     st.write("**Application:** YumnaKashif Universal Downloader")
-    st.write("**Version:** v10.0.1 Subprocess Anti-403 Engine")
+    st.write("**Version:** v11.0 Dual-Engine (pytubefix + yt-dlp)")
     st.markdown("### Made by **Mohd Kashif**")
     st.caption("AI & Full-Stack Developer")
 
@@ -282,9 +374,18 @@ else:
         if not url.strip():
             st.error("Please paste a valid video link first.")
         else:
-            with st.spinner("⚡ YumnaKashif AI is extracting unthrottled media stream..."):
+            with st.spinner("⚡ YumnaKashif Dual-Engine is extracting your media stream..."):
                 temp_dir = tempfile.mkdtemp()
-                filename, info_dict, error_msg = download_via_cli(url.strip(), download_type, quality_choice, temp_dir)
+                clean_url = url.strip()
+
+                # Try Engine 1 (pytubefix) first for YouTube URLs, then Engine 2 (yt-dlp CLI)
+                filename, info_dict, err1 = download_via_pytubefix(clean_url, download_type, quality_choice, temp_dir)
+                
+                if not filename:
+                    filename, info_dict, err2 = download_via_ytdlp_cli(clean_url, download_type, quality_choice, temp_dir)
+                    error_msg = f"{err2} (Fallback: {err1})"
+                else:
+                    error_msg = None
 
                 if filename:
                     file_path = os.path.join(temp_dir, filename)
@@ -300,7 +401,7 @@ else:
                         "title": video_title,
                         "type": download_type,
                         "quality": quality_choice,
-                        "url": url
+                        "url": clean_url
                     })
 
                     st.success("✅ Media Ready for Download!")
