@@ -18,7 +18,7 @@ import random
 import smtplib
 from email.message import EmailMessage
 
-# Try loading imageio_ffmpeg so 1080p/4K video+audio merging works automatically without manual FFmpeg installation
+# Try loading imageio_ffmpeg so 1080p/4K video+audio merging works automatically
 try:
     import imageio_ffmpeg
     FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
@@ -70,7 +70,7 @@ if "generated_otp" not in st.session_state:
     st.session_state.generated_otp = None
 if "history" not in st.session_state:
     st.session_state.history = []
-# Default to Light Mode (Day Mode) as requested
+# Default to Light Mode (Day Mode)
 if "dark_mode" not in st.session_state:
     st.session_state.dark_mode = False
 if "global_quality" not in st.session_state:
@@ -303,9 +303,6 @@ else:
     st.subheader("📥 Download Ultra-HD Video or Audio")
     url = st.text_input("🔗 Paste YouTube, Instagram, or Social Media Link:", placeholder="https://www.youtube.com/watch?v=... or https://www.instagram.com/reel/...")
     download_type = st.radio("Format:", ["Video (MP4 - Best Quality)", "Audio Only (MP3/M4A)"], horizontal=True)
-    
-    if not FFMPEG_PATH:
-        st.warning("💡 For 1080p/4K Ultra-HD quality, run `python -m pip install imageio-ffmpeg` in your Command Prompt.")
 
     if st.button("🚀 Fetch & Download Best Quality"):
         if not url.strip():
@@ -315,7 +312,6 @@ else:
                 try:
                     temp_dir = tempfile.mkdtemp()
                     
-                    # High-Resolution 1080p/4K selector using bundled FFmpeg from imageio-ffmpeg
                     if "Audio Only" in download_type:
                         format_str = "bestaudio[ext=m4a]/bestaudio/best"
                     else:
@@ -346,7 +342,6 @@ else:
                         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                             info_dict = ydl.extract_info(url, download=True)
                     except Exception:
-                        # Fallback to mobile high-res progressive stream if split stream fails
                         ydl_opts["format"] = "best[ext=mp4]/best"
                         ydl_opts["extractor_args"] = {"youtube": {"player_client": ["ios", "android", "web"]}}
                         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
