@@ -6,7 +6,6 @@ import tempfile
 import base64
 import glob
 import json
-import urllib.request
 import streamlit as st
 
 # 1. Force upgrade yt-dlp and imageio-ffmpeg on container boot
@@ -143,8 +142,8 @@ def download_via_cli(url, download_type, quality_choice, temp_dir):
         "--no-check-certificates",
         "--geo-bypass",
         "--force-ipv4",
-        "--Socket-timeout", "20",
-        "--Write-info-json",
+        "--socket-timeout", "20",
+        "--write-info-json",
         "-S", sort_arg,
         "-o", output_template,
     ]
@@ -256,7 +255,7 @@ if st.session_state.show_settings:
     st.write("")
     st.subheader("ℹ️ About & Version")
     st.write("**Application:** YumnaKashif Universal Downloader")
-    st.write("**Version:** v10.0.0 Subprocess Anti-403 Engine")
+    st.write("**Version:** v10.0.1 Subprocess Anti-403 Engine")
     st.markdown("### Made by **Mohd Kashif**")
     st.caption("AI & Full-Stack Developer")
 
@@ -327,3 +326,5 @@ else:
                         )
                 else:
                     st.error(f"Download Error: {error_msg}")
+
+# END OF FILE
