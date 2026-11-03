@@ -1,5 +1,2 @@
 streamlit
-yt-dlp
 imageio-ffmpeg
-pytubefix
-bgutil-ytdlp-pot-provider
