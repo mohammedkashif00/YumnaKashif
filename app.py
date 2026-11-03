@@ -44,7 +44,14 @@ def get_background_base64():
             return base64.b64encode(f.read()).decode()
     return ""
 
-def send_real_gmail_otp(sender_email, app_password, receiver_email, otp_code):
+def send_real_gmail_otp(receiver_email, otp_code):
+    # Uses secure server secrets stored in Streamlit Cloud Dashboard -> Settings -> Secrets
+    sender_email = st.secrets.get("GMAIL_SENDER", os.environ.get("GMAIL_SENDER", ""))
+    app_password = st.secrets.get("GMAIL_APP_PASSWORD", os.environ.get("GMAIL_APP_PASSWORD", ""))
+    
+    if not sender_email or not app_password:
+        raise ValueError("SMTP credentials are not configured in Streamlit Secrets.")
+
     msg = EmailMessage()
     msg["Subject"] = f"YumnaKashif Verification Code: {otp_code}"
     msg["From"] = f"YumnaKashif Security <{sender_email}>"
@@ -70,17 +77,12 @@ if "generated_otp" not in st.session_state:
     st.session_state.generated_otp = None
 if "history" not in st.session_state:
     st.session_state.history = []
-# Default to Light Mode (Day Mode)
 if "dark_mode" not in st.session_state:
     st.session_state.dark_mode = False
 if "global_quality" not in st.session_state:
     st.session_state.global_quality = "Best Available (1080p/4K)"
 if "show_settings" not in st.session_state:
     st.session_state.show_settings = False
-if "smtp_sender" not in st.session_state:
-    st.session_state.smtp_sender = os.environ.get("GMAIL_SENDER", "")
-if "smtp_password" not in st.session_state:
-    st.session_state.smtp_password = os.environ.get("GMAIL_APP_PASSWORD", "")
 
 # ----------------- LIGHT & DARK THEME STYLING -----------------
 theme_text = "#0f172a" if not st.session_state.dark_mode else "#f8fafc"
@@ -156,72 +158,58 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
-
-# ----------------- MANDATORY REAL GMAIL OTP GATEWAY -----------------
+# ----------------- OTP-ONLY LOGIN GATEWAY -----------------
 if not st.session_state.logged_in:
     st.markdown("<h1 style='text-align: center; margin-top: 25px; font-size: 2.8rem;'>⚡ YumnaKashif</h1>", unsafe_allow_html=True)
-    st.markdown(f"<p style='text-align: center; color: {sub_text}; margin-bottom: 25px;'>Universal AI Media Suite — Created by Mohd Kashif</p>", unsafe_allow_html=True)
+    st.markdown(f"<p style='text-align: center; color: {sub_text}; margin-bottom: 25px;'>Secure OTP Verification Portal — Created by Mohd Kashif</p>", unsafe_allow_html=True)
     
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
     if st.session_state.auth_step == "email":
-        st.subheader("🔐 Real Gmail OTP Login")
-        email_input = st.text_input("Enter your Gmail Address to receive OTP:", placeholder="yourname@gmail.com")
-        
-        with st.expander("⚙️ Configure Gmail SMTP Server (Required to send real emails)"):
-            st.caption("To send a real email from Python to any Gmail inbox, enter your sender Gmail and a 16-character Google App Password (from myaccount.google.com -> Security -> App Passwords).")
-            st.session_state.smtp_sender = st.text_input("Sender Gmail Address:", value=st.session_state.smtp_sender, placeholder="yourname@gmail.com")
-            st.session_state.smtp_password = st.text_input("Google 16-Digit App Password:", value=st.session_state.smtp_password, type="password", placeholder="xxxx xxxx xxxx xxxx")
+        st.subheader("✉️ Enter Your Email")
+        email_input = st.text_input("Your Email Address:", placeholder="yourname@gmail.com")
 
-        if st.button("📤 Send OTP to My Gmail"):
+        if st.button("📤 Send Verification OTP"):
             clean_email = email_input.strip().lower()
-            if not (clean_email.endswith("@gmail.com") and len(clean_email) > 10):
-                st.error("⚠️ Please enter a valid @gmail.com address.")
-            elif not st.session_state.smtp_sender or not st.session_state.smtp_password:
-                st.error("⚠️ Please open '⚙️ Configure Gmail SMTP Server' above and enter your Sender Gmail & Google App Password so the app can email the OTP to your inbox.")
+            if not ("@" in clean_email and "." in clean_email and len(clean_email) > 5):
+                st.error("⚠️ Please enter a valid email address.")
             else:
                 otp_code = str(random.randint(100000, 999999))
-                with st.spinner(f"Sending real 6-digit OTP to {clean_email}..."):
+                with st.spinner(f"Sending 6-digit OTP to {clean_email}..."):
                     try:
-                        send_real_gmail_otp(
-                            st.session_state.smtp_sender.strip(),
-                            st.session_state.smtp_password.strip(),
-                            clean_email,
-                            otp_code
-                        )
+                        send_real_gmail_otp(clean_email, otp_code)
                         st.session_state.generated_otp = otp_code
                         st.session_state.user_email = clean_email
                         st.session_state.auth_step = "otp"
                         st.rerun()
                     except Exception as e:
-                        st.error(f"❌ Failed to send email via Gmail SMTP: {e}. Check your 16-digit Google App Password.")
+                        st.error(f"❌ Failed to dispatch email. Please check server SMTP secrets configuration. Details: {e}")
     else:
-        st.subheader("🔐 Verify Your Gmail OTP")
-        st.success(f"📩 A real 6-digit OTP has been sent to **{st.session_state.user_email}**. Please check your Gmail inbox!")
-        otp_input = st.text_input("Enter 6-Digit OTP:", type="password", max_chars=6, placeholder="••••••")
+        st.subheader("🔐 Enter 6-Digit OTP")
+        st.success(f"📩 A verification code has been sent to **{st.session_state.user_email}**. Check your inbox!")
+        otp_input = st.text_input("Verification Code:", type="password", max_chars=6, placeholder="••••••")
         
         col_v1, col_v2 = st.columns(2)
         with col_v1:
-            if st.button("✔️ Verify & Login"):
+            if st.button("✔️ Verify & Enter"):
                 if st.session_state.generated_otp and otp_input.strip() == st.session_state.generated_otp:
                     st.session_state.logged_in = True
                     st.session_state.generated_otp = None
                     st.rerun()
                 else:
-                    st.error("❌ Invalid OTP! Access denied. Please check your Gmail inbox and enter the exact 6-digit code.")
+                    st.error("❌ Invalid OTP! Access denied. Please enter the exact code received in your email.")
         with col_v2:
-            if st.button("⬅️ Back / Resend"):
+            if st.button("⬅️ Resend Code"):
                 st.session_state.auth_step = "email"
                 st.session_state.generated_otp = None
                 st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
-
-# ----------------- TOP BAR: TITLE & SINGLE SETTINGS LOGO BUTTON -----------------
+# ----------------- TOP BAR: TITLE & SETTINGS TOGGLE -----------------
 top_col1, top_col2 = st.columns([5, 1])
 with top_col1:
     st.markdown("<h2 style='margin: 0;'>⚡ YumnaKashif</h2>", unsafe_allow_html=True)
-    st.caption(f"Verified: {st.session_state.user_email} • Made by Mohd Kashif")
+    st.caption(f"Authenticated as: {st.session_state.user_email} • Created by Mohd Kashif")
 with top_col2:
     btn_label = "🏠" if st.session_state.show_settings else "⚙️"
     btn_help = "Back to Downloader" if st.session_state.show_settings else "Open Settings"
@@ -231,18 +219,14 @@ with top_col2:
 
 st.markdown("---")
 
-
-# ----------------- VIEW A: SETTINGS SCREEN (WHEN ⚙️ IS CLICKED) -----------------
+# ----------------- VIEW A: SETTINGS SCREEN -----------------
 if st.session_state.show_settings:
     st.markdown("<h2 style='text-align: center;'>⚙️ Settings & Control Center</h2>", unsafe_allow_html=True)
 
-    # 1. Profile Details
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-    st.subheader("👤 Profile")
-    st.write("**App Name:** YumnaKashif")
-    st.write(f"**Verified Gmail:** `{st.session_state.user_email}`")
-    st.write("**Membership:** Pro Active")
-    if st.button("🚪 Sign Out of Gmail"):
+    st.subheader("👤 Session Profile")
+    st.write(f"**Logged-in Email:** `{st.session_state.user_email}`")
+    if st.button("🚪 Log Out"):
         st.session_state.logged_in = False
         st.session_state.user_email = ""
         st.session_state.auth_step = "email"
@@ -250,7 +234,6 @@ if st.session_state.show_settings:
         st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # 2. Appearance (Day & Night Mode) & Download Quality
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
     st.subheader("🎨 Theme & Download Quality")
     
@@ -271,7 +254,6 @@ if st.session_state.show_settings:
         st.success(f"Download quality set to {selected_q}")
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # 3. Download History
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
     st.subheader("📜 Download History")
     if not st.session_state.history:
@@ -286,16 +268,14 @@ if st.session_state.show_settings:
             st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # 4. Version & Made By Mohd Kashif
     st.markdown('<div class="glass-card" style="text-align: center;">', unsafe_allow_html=True)
     st.subheader("ℹ️ About & Version")
     st.write("**Application:** YumnaKashif Universal Downloader")
-    st.write("**Version:** v6.0.0 Pro (Ultra-HD Engine)")
+    st.write("**Version:** v6.1.0 Pro (OTP Secure)")
     st.markdown("---")
     st.markdown("### Made by **Mohd Kashif**")
     st.caption("AI & Full-Stack Developer")
     st.markdown('</div>', unsafe_allow_html=True)
-
 
 # ----------------- VIEW B: MAIN DOWNLOADER SCREEN -----------------
 else:
